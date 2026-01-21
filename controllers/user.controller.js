@@ -4,7 +4,7 @@ const bcrypt = require("bcryptjs");
 // CREATE USER interne (par admin)
 exports.createUser = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, firstname, email, password, role } = req.body;
 
     // vérifier si l'utilisateur existe déjà
     const existingUser = await prisma.user.findUnique({ where: { email } });
