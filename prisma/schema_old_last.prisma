@@ -1,0 +1,460 @@
+// Générateur du client Prisma (JS/TS)
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+// Source de données (MySQL) avec URL provenant du fichier .env
+datasource db {
+  provider = "mysql"
+  url = "mysql://root:@localhost:3306/pcash"
+  //url      = env("DATABASE_URL")
+}
+
+//! Modèle représentant un utilisateur
+model User {
+  id        BigInt    @id @default(autoincrement())
+  name      String
+  firstname String
+  username  String   @unique
+  email     String   @unique
+  password  String
+  phone     String?  @unique
+  address   String?
+  status   Boolean  @default(true) // true = actif, false = bloqué
+  role      Role      @default(customer)
+  created   DateTime  @default(now())
+  modified  DateTime  @updatedAt
+  stores    Store[]
+  products  Product[] @relation("UserProducts")
+  services  Service[]
+  orders    Order[]
+  payments  Payment[]
+  reviews   Review[]
+  serviceReviews ServiceReview[]
+  addresses Address[]
+  transactions Transaction[]
+  @@map("users")
+}
+
+//! Représente un magasin
+model Store {
+  id          BigInt    @id @default(autoincrement())
+  name        String
+  slug        String    @unique
+  description String?   @db.Text
+  slogan      String?   @db.Text
+  logo        String?
+  email       String    @unique
+  phone1      String?
+  phone2      String?
+  number      String?
+  street      String?
+  city        String?
+  postalCode  String?
+  country     String?
+  department  BigInt
+  commune     BigInt
+  latitude    String?
+  longitude   String?
+  created     DateTime  @default(now())
+  modified    DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      BigInt
+  status   Boolean  @default(true) // true = actif, false = bloqué
+  products    Product[]
+  services    Service[]
+  @@map("stores")
+}
+
+//! Marque d'un produit
+model Brand {
+  id       BigInt    @id @default(autoincrement())
+  name     String    @unique
+  slug     String    @unique
+  products Product[]
+  created  DateTime  @default(now())
+  modified DateTime  @updatedAt
+  @@map("brands")
+}
+
+//! Catégorie de produits
+model Category {
+  id       BigInt     @id @default(autoincrement())
+  name     String
+  slug     String     @unique
+  parentId BigInt?
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryParent")
+  products Product[]
+  services Service[]
+  created  DateTime   @default(now())
+  modified DateTime   @updatedAt
+  @@map("categories")
+}
+
+//! Produit vendu
+model Product {
+  id            BigInt           @id @default(autoincrement())
+  name          String
+  slug          String           @unique
+  description   String?          @db.Text
+  price         Decimal          @db.Decimal(10,2)
+  stockQuantity Int
+  category      Category         @relation(fields: [categoryId], references: [id])
+  categoryId    BigInt
+  brand         Brand            @relation(fields: [brandId], references: [id])
+  brandId       BigInt
+  seller        User             @relation("UserProducts", fields: [sellerId], references: [id])
+  sellerId      BigInt
+  store         Store?           @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  storeId       BigInt?
+  images        ProductImage[]
+  variants      ProductVariant[]
+  reviews       Review[]
+  productTags   ProductTag[]
+  created       DateTime         @default(now())
+  modified      DateTime         @updatedAt
+  @@map("products")
+}
+
+//! Service proposé par un vendeur
+model Service {
+  id          BigInt       @id @default(autoincrement())
+  name        String
+  slug        String       @unique
+  description String?      @db.Text
+  type        ServiceType  @default(FIXED)
+  basePrice   Decimal?     @db.Decimal(10,2)
+  category    Category     @relation(fields: [categoryId], references: [id])
+  categoryId  BigInt
+  seller      User         @relation(fields: [sellerId], references: [id])
+  sellerId    BigInt
+  store       Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  storeId     BigInt?
+  images      ServiceImage[]
+  reviews     ServiceReview[]
+  durations   ServiceDuration[]
+  serviceTags ServiceTag[]
+  created     DateTime     @default(now())
+  modified    DateTime     @updatedAt
+  @@map("services")
+}
+
+//! Durées disponibles pour les services DURATION_BASED
+model ServiceDuration {
+  id          BigInt    @id @default(autoincrement())
+  duration    Int
+  unit        DurationUnit @default(HOUR)
+  price       Decimal   @db.Decimal(10,2)      // Prix pour cette durée
+  description String? @db.Text       // Description optionnelle
+  service     Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId   BigInt
+  isDefault   Boolean   @default(false) // Durée par défaut
+  created     DateTime  @default(now())
+  modified    DateTime  @updatedAt
+  @@unique([serviceId, duration])
+  @@map("service_durations")
+}
+
+model Tag {
+  id          BigInt        @id @default(autoincrement())
+  name        String        @unique
+  created     DateTime      @default(now())
+  modified    DateTime      @updatedAt
+  productTags ProductTag[]
+  serviceTags ServiceTag[]
+  @@map("tags")
+}
+
+model ProductTag {
+  id        BigInt   @id @default(autoincrement())
+  product   Product  @relation(fields: [productId], references: [id])
+  productId BigInt
+  tag       Tag      @relation(fields: [tagId], references: [id])
+  tagId     BigInt
+  @@unique([productId, tagId])
+  @@map("product_tags")
+}
+
+model ServiceTag {
+  id        BigInt   @id @default(autoincrement())
+  service   Service  @relation(fields: [serviceId], references: [id])
+  serviceId BigInt
+  tag       Tag      @relation(fields: [tagId], references: [id])
+  tagId     BigInt
+  @@unique([serviceId, tagId])
+  @@map("service_tags")
+}
+
+//! Image liée à un produit
+model ProductImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  @@map("product_images")
+}
+
+//! Image liée à un service
+model ServiceImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  @@map("service_images")
+}
+
+//! Couleur possible pour les variantes de produit
+model Color {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  hex      String?
+  slug     String   @unique
+  variants ProductVariant[]
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+  @@map("colors")
+}
+
+//! Taille possible pour les variantes
+model Size {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  slug     String   @unique
+  variants ProductVariant[]
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+  @@map("sizes")
+}
+
+//! Variante de produit
+model ProductVariant {
+  id            BigInt   @id @default(autoincrement())
+  sku           String   @unique
+  price         Decimal  @db.Decimal(10,2)
+  stockQuantity Int
+  imageUrl      String?
+  product       Product  @relation(fields: [productId], references: [id])
+  productId     BigInt
+  color         Color    @relation(fields: [colorId], references: [id])
+  colorId       BigInt
+  size          Size     @relation(fields: [sizeId], references: [id])
+  sizeId        BigInt
+  created       DateTime @default(now())
+  modified      DateTime @updatedAt
+  @@map("product_variants")
+}
+
+//! Commande passée par un utilisateur
+model Order {
+  id          BigInt      @id @default(autoincrement())
+  status      OrderStatus @default(pending)
+  totalAmount Decimal     @db.Decimal(10,2)
+  user        User        @relation(fields: [userId], references: [id])
+  userId      BigInt
+  items       OrderItem[]
+  payments    Payment[]   // 🔹 Changé en one-to-many
+  transactions Transaction[]
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  @@map("orders")
+}
+
+//! Élément d'une commande
+model OrderItem {
+  id                BigInt            @id @default(autoincrement())
+  quantity          Int
+  price             Decimal           @db.Decimal(10,2)
+  order             Order             @relation(fields: [orderId], references: [id])
+  orderId           BigInt
+  variantId         BigInt?
+  serviceId         BigInt?
+  serviceDurationId BigInt?
+  created           DateTime          @default(now())
+  modified          DateTime          @updatedAt
+  @@map("order_items")
+}
+
+//! Facture principale
+model Invoice {
+  id          BigInt         @id @default(autoincrement())
+  number      String         @unique
+  date        DateTime       @default(now())
+  total       Decimal        @db.Decimal(10,2)
+  details     InvoiceDetail[]
+  payments    Payment[]
+  created     DateTime       @default(now())
+  modified    DateTime       @updatedAt
+  @@map("invoices")
+}
+
+//! Détail d'une facture
+model InvoiceDetail {
+  id          BigInt           @id @default(autoincrement())
+  invoice     Invoice          @relation(fields: [invoiceId], references: [id])
+  invoiceId   BigInt
+  itemType    ItemType
+  itemName    String
+  itemDescription String? @db.Text
+
+  productId   BigInt?
+  serviceId   BigInt?
+  serviceDurationId BigInt?
+  variantId   BigInt?
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10,2)
+  total       Decimal @db.Decimal(10,2)
+  created     DateTime         @default(now())
+  modified    DateTime         @updatedAt
+  @@map("invoice_details")
+}
+
+//! Paiement effectué
+model Payment {
+  id        BigInt        @id @default(autoincrement())
+  method    PaymentMethod 
+  amount    Decimal       @db.Decimal(10,2)
+  status    PaymentStatus @default(PENDING)
+  user      User          @relation(fields: [userId], references: [id])
+  userId    BigInt
+  order     Order?    @relation(fields: [orderId], references: [id])
+  orderId   BigInt?   // 🔹 Pas besoin de @unique
+  invoice   Invoice?      @relation(fields: [invoiceId], references: [id])
+  invoiceId BigInt?
+  created   DateTime      @default(now())
+  modified  DateTime      @updatedAt
+  @@map("payments")
+}
+
+//! Avis utilisateur pour produit
+model Review {
+  id        BigInt   @id @default(autoincrement())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    BigInt
+  product   Product  @relation(fields: [productId], references: [id])
+  productId BigInt
+  @@map("reviews")
+}
+
+//! Avis utilisateur pour service
+model ServiceReview {
+  id        BigInt   @id @default(autoincrement())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    BigInt
+  service   Service  @relation(fields: [serviceId], references: [id])
+  serviceId BigInt
+  @@map("service_reviews")
+}
+
+//! Adresse utilisateur
+model Address {
+  id         BigInt      @id @default(autoincrement())
+  number     String
+  street     String
+  city       String?
+  postalCode String?
+  country    String?
+  department BigInt
+  commune    BigInt
+  latitude   String?
+  longitude  String?
+  type       AddressType @default(principale)
+  isDefault  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     BigInt
+  @@map("addresses")
+}
+
+model Transaction {
+  id          BigInt           @id @default(autoincrement())
+  type        TransactionType
+  amount      Decimal         @db.Decimal(10,2)
+  description String?         @db.Text          
+  status      TransactionStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  user        User             @relation(fields: [userId], references: [id])
+  userId      BigInt
+  order       Order?           @relation(fields: [orderId], references: [id])
+  orderId     BigInt?
+  @@map("transactions")
+}
+
+//! Enumérations
+enum Role {
+  customer
+  seller
+  admin
+  sa
+}
+
+enum OrderStatus {
+  pending
+  paid
+  shipped
+  cancelled
+  refunded
+}
+
+enum PaymentStatus {
+  PENDING
+  FAILED
+  COMPLETED
+  REFUNDED
+}
+
+enum AddressType {
+  principale
+  secondaire
+  autres
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  PAYPAL
+  BANK_TRANSFER
+  MONCASH
+  NATCASH
+}
+
+enum TransactionType {
+  IN
+  OUT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ServiceType {
+  FIXED
+  DURATION_BASED
+}
+
+enum ItemType {
+  PRODUCT
+  SERVICE
+}
+
+enum DurationUnit {
+  MINUTE
+  HOUR
+  DAY
+}

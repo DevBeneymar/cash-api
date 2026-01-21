@@ -1,0 +1,508 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  //url      = env("DATABASE_URL")
+  url = "mysql://root:@localhost:3306/pcash"
+}
+
+// ==================== ENUMS ====================
+
+enum Role {
+  customer
+  seller
+  admin
+  sa
+}
+
+enum OrderStatus {
+  pending
+  paid
+  shipped
+  cancelled
+  refunded
+}
+
+enum PaymentStatus {
+  PENDING
+  FAILED
+  COMPLETED
+  REFUNDED
+}
+
+enum AddressType {
+  principale
+  secondaire
+  autres
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  PAYPAL
+  BANK_TRANSFER
+  MONCASH
+  NATCASH
+}
+
+enum TransactionType {
+  IN
+  OUT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ServiceType {
+  FIXED
+  DURATION_BASED
+}
+
+enum ItemType {
+  PRODUCT
+  SERVICE
+}
+
+enum DurationUnit {
+  MINUTE
+  HOUR
+  DAY
+}
+
+// ==================== MODELS ====================
+
+// 🔹 Nouvelle table pour les sessions de caisse
+model CashSession {
+  id          BigInt       @id @default(autoincrement())
+  storeId     BigInt
+  userId      BigInt       // Caissier qui ouvre la session
+  openingTime DateTime     @default(now())
+  closingTime DateTime?
+  openingAmount Decimal    @db.Decimal(10,2)
+  closingAmount Decimal?   @db.Decimal(10,2)
+  isClosed     Boolean     @default(false)
+  created      DateTime    @default(now())
+  modified     DateTime    @updatedAt
+
+  store        Store       @relation(fields: [storeId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@map("cash_sessions")
+}
+
+model User {
+  id             BigInt      @id @default(autoincrement())
+  name           String
+  firstname      String
+  username       String      @unique
+  email          String      @unique
+  password       String
+  phone          String?     @unique
+  address        String?
+  status         Boolean     @default(true)
+  role           Role        @default(customer)
+  created        DateTime    @default(now())
+  modified       DateTime    @updatedAt
+  isDeleted      Boolean     @default(false)
+
+  stores         Store[]
+  products       Product[]   @relation("UserProducts")
+  services       Service[]
+  orders         Order[]
+  payments       Payment[]
+  reviews        Review[]
+  serviceReviews ServiceReview[]
+  addresses      Address[]
+  transactions   Transaction[]
+
+  @@map("users")
+}
+
+model Store {
+  id          BigInt      @id @default(autoincrement())
+  name        String
+  slug        String      @unique
+  description String?     @db.Text
+  slogan      String?     @db.Text
+  logo        String?
+  email       String      @unique
+  phone1      String?
+  phone2      String?
+  number      String?
+  street      String?
+  city        String?
+  postalCode  String?
+  country     String?
+  department  BigInt
+  commune     BigInt
+  latitude    String?
+  longitude   String?
+  status      Boolean     @default(true)
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  userId      BigInt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products    Product[]
+  services    Service[]
+  reviews     Review[]
+
+  @@map("stores")
+}
+
+model Brand {
+  id          BigInt      @id @default(autoincrement())
+  name        String      @unique
+  slug        String      @unique
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  products    Product[]
+
+  @@map("brands")
+}
+
+model Category {
+  id          BigInt      @id @default(autoincrement())
+  name        String
+  slug        String      @unique
+  parentId    BigInt?
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  parent      Category?   @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryParent")
+  products    Product[]
+  services    Service[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            BigInt           @id @default(autoincrement())
+  name          String
+  slug          String           @unique
+  description   String?          @db.Text
+  price         Decimal          @db.Decimal(10,2)
+  stockQuantity Int
+  categoryId    BigInt
+  brandId       BigInt
+  sellerId      BigInt
+  storeId       BigInt?
+  created       DateTime         @default(now())
+  modified      DateTime         @updatedAt
+  isDeleted     Boolean          @default(false)
+
+  category      Category         @relation(fields: [categoryId], references: [id])
+  brand         Brand            @relation(fields: [brandId], references: [id])
+  seller        User             @relation("UserProducts", fields: [sellerId], references: [id])
+  store         Store?           @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  images        ProductImage[]
+  variants      ProductVariant[]
+  reviews       Review[]
+  productTags   ProductTag[]
+  orderItems    OrderItem[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id            BigInt   @id @default(autoincrement())
+  sku           String   @unique
+  price         Decimal  @db.Decimal(10,2)
+  stockQuantity Int
+  imageUrl      String?
+  productId     BigInt
+  colorId       BigInt
+  sizeId        BigInt
+  created       DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  product       Product  @relation(fields: [productId], references: [id])
+  color         Color    @relation(fields: [colorId], references: [id])
+  size          Size     @relation(fields: [sizeId], references: [id])
+  orderItems    OrderItem[]
+
+  @@map("product_variants")
+}
+
+model Service {
+  id          BigInt       @id @default(autoincrement())
+  name        String
+  slug        String       @unique
+  description String?      @db.Text
+  type        ServiceType  @default(FIXED)
+  basePrice   Decimal?     @db.Decimal(10,2)
+  categoryId  BigInt
+  sellerId    BigInt
+  storeId     BigInt?
+  created     DateTime     @default(now())
+  modified    DateTime     @updatedAt
+  isDeleted   Boolean      @default(false)
+
+  category    Category     @relation(fields: [categoryId], references: [id])
+  seller      User         @relation(fields: [sellerId], references: [id])
+  store       Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  images      ServiceImage[]
+  reviews     ServiceReview[]
+  durations   ServiceDuration[]
+  serviceTags ServiceTag[]
+  orderItems  OrderItem[]
+
+  @@map("services")
+}
+
+model ServiceDuration {
+  id          BigInt    @id @default(autoincrement())
+  duration    Int
+  unit        DurationUnit @default(HOUR)
+  price       Decimal   @db.Decimal(10,2)
+  description String?   @db.Text
+  serviceId   BigInt
+  isDefault   Boolean   @default(false)
+  created     DateTime  @default(now())
+  modified    DateTime  @updatedAt
+
+  service     Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  orderItems  OrderItem[]
+
+  @@unique([serviceId, duration])
+  @@map("service_durations")
+}
+
+model Tag {
+  id          BigInt        @id @default(autoincrement())
+  name        String        @unique
+  created     DateTime      @default(now())
+  modified    DateTime      @updatedAt
+  productTags ProductTag[]
+  serviceTags ServiceTag[]
+
+  @@map("tags")
+}
+
+model ProductTag {
+  id        BigInt   @id @default(autoincrement())
+  productId BigInt
+  tagId     BigInt
+
+  product   Product  @relation(fields: [productId], references: [id])
+  tag       Tag      @relation(fields: [tagId], references: [id])
+
+  @@unique([productId, tagId])
+  @@map("product_tags")
+}
+
+model ServiceTag {
+  id        BigInt   @id @default(autoincrement())
+  serviceId BigInt
+  tagId     BigInt
+
+  service   Service  @relation(fields: [serviceId], references: [id])
+  tag       Tag      @relation(fields: [tagId], references: [id])
+
+  @@unique([serviceId, tagId])
+  @@map("service_tags")
+}
+
+model ProductImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  productId BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+}
+
+model ServiceImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  serviceId BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("service_images")
+}
+
+model Color {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  hex      String?
+  slug     String   @unique
+  variants ProductVariant[]
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  @@map("colors")
+}
+
+model Size {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  slug     String   @unique
+  variants ProductVariant[]
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  @@map("sizes")
+}
+
+model Order {
+  id          BigInt      @id @default(autoincrement())
+  status      OrderStatus @default(pending)
+  totalAmount Decimal     @db.Decimal(10,2)
+  userId      BigInt
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  user        User        @relation(fields: [userId], references: [id])
+  items       OrderItem[]
+  payments    Payment[]
+  transactions Transaction[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id                BigInt            @id @default(autoincrement())
+  quantity          Int
+  price             Decimal           @db.Decimal(10,2)
+  orderId           BigInt
+  variantId         BigInt?
+  serviceId         BigInt?
+  serviceDurationId BigInt?
+  created           DateTime          @default(now())
+  modified          DateTime          @updatedAt
+
+  order             Order             @relation(fields: [orderId], references: [id])
+  variant           ProductVariant?   @relation(fields: [variantId], references: [id])
+  service           Service?          @relation(fields: [serviceId], references: [id])
+  duration          ServiceDuration?  @relation(fields: [serviceDurationId], references: [id])
+
+  @@map("order_items")
+}
+
+model Invoice {
+  id        BigInt    @id @default(autoincrement())
+  orderId   BigInt
+  total     Decimal   @db.Decimal(10,2)
+  created   DateTime  @default(now())
+  modified  DateTime  @updatedAt
+  isDeleted Boolean   @default(false)
+
+  order     Order     @relation(fields: [orderId], references: [id])
+  payments  Payment[]
+  transactions Transaction[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id         BigInt        @id @default(autoincrement())
+  orderId    BigInt?
+  invoiceId  BigInt?
+  amount     Decimal       @db.Decimal(10,2)
+  status     PaymentStatus @default(PENDING)
+  method     PaymentMethod
+  created    DateTime      @default(now())
+  modified   DateTime      @updatedAt
+  isDeleted  Boolean       @default(false)
+
+  order      Order?        @relation(fields: [orderId], references: [id])
+  invoice    Invoice?      @relation(fields: [invoiceId], references: [id])
+  transactions Transaction[]
+
+  @@map("payments")
+}
+
+// 🔹 Modification du modèle Transaction pour intégrer la caisse
+model Transaction {
+  id           BigInt           @id @default(autoincrement())
+  orderId      BigInt?
+  invoiceId    BigInt?
+  cashSessionId BigInt?          // Nouvelle colonne pour la caisse
+  type         TransactionType
+  amount       Float
+  status       TransactionStatus @default(PENDING)
+  created      DateTime          @default(now())
+  modified     DateTime          @updatedAt
+  isDeleted    Boolean           @default(false)
+
+  order        Order?            @relation(fields: [orderId], references: [id])
+  invoice      Invoice?          @relation(fields: [invoiceId], references: [id])
+  cashSession  CashSession?      @relation(fields: [cashSessionId], references: [id])
+
+  @@map("transactions")
+}
+
+model Address {
+  id          BigInt      @id @default(autoincrement())
+  street      String
+  city        String
+  state       String
+  country     String
+  zipCode     String
+  type        AddressType
+  userId      BigInt
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@map("addresses")
+}
+
+model Review {
+  id        BigInt   @id @default(autoincrement())
+  rating    Int
+  comment   String?  @db.Text
+  productId BigInt?
+  serviceId BigInt?
+  storeId   BigInt?
+  userId    BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  user      User      @relation(fields: [userId], references: [id])
+  product   Product?  @relation(fields: [productId], references: [id])
+  service   Service?  @relation(fields: [serviceId], references: [id])
+  store     Store?    @relation(fields: [storeId], references: [id])
+
+  @@map("reviews")
+}
+
+model ServiceReview {
+  id        BigInt   @id @default(autoincrement())
+  rating    Int
+  comment   String?  @db.Text
+  serviceId BigInt
+  userId    BigInt
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  service   Service  @relation(fields: [serviceId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("service_reviews")
+}

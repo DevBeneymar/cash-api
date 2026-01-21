@@ -1,0 +1,830 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url = "mysql://root:@localhost:3306/pcash"
+}
+
+// ==================== ENUMS ====================
+
+enum Role {
+  customer
+  seller
+  admin
+  sa
+}
+
+enum OrderStatus {
+  pending
+  paid
+  shipped
+  cancelled
+  refunded
+}
+
+enum PaymentStatus {
+  PENDING
+  FAILED
+  COMPLETED
+  REFUNDED
+}
+
+enum AddressType {
+  principale
+  secondaire
+  autres
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  PAYPAL
+  BANK_TRANSFER
+  MONCASH
+  NATCASH
+}
+
+enum TransactionType {
+  IN
+  OUT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ServiceType {
+  FIXED
+  DURATION_BASED
+}
+
+enum ItemType {
+  PRODUCT
+  SERVICE
+}
+
+enum DurationUnit {
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum TaxType {
+  NONE
+  VAT
+  SALES_TAX
+  SERVICE_TAX
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
+}
+
+// ==================== MODELS ====================
+
+model User {
+  id        BigInt   @id @default(autoincrement())
+  name      String
+  firstname String
+  username  String   @unique
+  email     String   @unique
+  password  String
+  phone     String?  @unique
+  address   String?
+  status    Boolean  @default(true)
+  role      Role     @default(customer)
+  language  String?  @default("fr")
+  currency  String?  @default("HTG")
+  timezone  String?  @default("America/Port-au-Prince")
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  // RELATION → Multi-store
+  userStores UserStore[]   // pivot table (owner, manager, cashier, etc.)
+
+  // AUTRES RELATIONS
+  products       Product[]       @relation("ProductSeller")
+  services       Service[]
+  orders         Order[]
+  payments       Payment[]
+  reviews        Review[]
+  addresses      Address[]
+  transactions   Transaction[]
+  cashSessions   CashSession[]
+  invoices       Invoice[]
+
+  @@map("users")
+  @@index([email, isDeleted])
+  @@index([phone])
+  @@index([username])
+  @@index([role])
+  @@index([status])
+  @@index([created])
+}
+
+
+model UserStore {
+  id       BigInt @id @default(autoincrement())
+  userId   BigInt
+  storeId  BigInt
+  role     String @default("owner") // owner, cashier, manager, etc.
+  created  DateTime @default(now())
+
+  user   User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store  Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@map("user_stores")
+}
+
+
+
+model StoreCategory {
+  id          BigInt   @id @default(autoincrement())
+  storeId     BigInt
+  categoryId  BigInt
+  isPrimary   Boolean  @default(false)  // Catégorie principale de la boutique
+  order       Int      @default(0)      // Ordre d'affichage
+  created     DateTime @default(now())
+  modified    DateTime @updatedAt
+
+  // RELATIONS
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, categoryId])  // Évite les doublons
+  @@map("store_categories")
+  @@index([storeId])
+  @@index([categoryId])
+  @@index([isPrimary])
+  @@index([order])
+}
+
+model Store {
+  id          BigInt   @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  slug        String   @unique @db.VarChar(255)
+  description String?  @db.Text
+  slogan      String?  @db.Text
+  logo        String?
+  email       String   @unique @db.VarChar(255)
+  phone1      String?  @db.VarChar(50)
+  phone2      String?  @db.VarChar(50)
+  number      String?  @db.VarChar(20)
+  street      String?  @db.VarChar(255)
+  city        String?  @db.VarChar(100)
+  postalCode  String?  @db.VarChar(20)
+  country     String?  @db.VarChar(100)
+  department  BigInt
+  commune     BigInt
+  latitude    String?  @db.VarChar(50)
+  longitude   String?  @db.VarChar(50)
+  language    String?  @default("fr") @db.VarChar(10)
+  currency    String?  @default("HTG") @db.VarChar(10)
+  timezone    String?  @default("America/Port-au-Prince") @db.VarChar(50)
+  status      Boolean  @default(true)
+  created     DateTime @default(now())
+  modified    DateTime @updatedAt
+  isDeleted   Boolean  @default(false)
+
+  // RELATIONS via pivot user_stores
+  users UserStore[]        // ← un store peut avoir plusieurs utilisateurs
+
+  products     Product[]     @relation("StoreProducts")
+  services     Service[]     @relation("StoreServices")
+  reviews      Review[]
+  cashSessions CashSession[]
+  invoices     Invoice[]
+  invoiceSequences InvoiceSequence[]
+  storeCategories StoreCategory[]
+
+  @@map("stores")
+  @@index([status])
+  @@index([slug])
+}
+
+
+model Category {
+  id        BigInt   @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  parentId  BigInt?
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  // RELATIONS EXISTANTES
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryParent")
+  products Product[]
+  services Service[]
+  
+  // NOUVELLE RELATION (via table de jointure)
+  storeCategories StoreCategory[]
+
+  @@map("categories")
+  @@index([slug])
+  @@index([parentId])
+}
+
+model Brand {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  // RELATIONS
+  products Product[]
+
+  @@map("brands")
+  @@index([slug])
+}
+
+
+model Product {
+  id            BigInt   @id @default(autoincrement())
+  name          String
+  slug          String   @unique
+  description   String?  @db.Text
+  price         Decimal  @db.Decimal(10, 2)
+  stockQuantity Int      @default(0)
+  sku           String?  @unique
+  weight        Decimal? @db.Decimal(10, 3)
+  dimensions    String?
+  searchVector  String?
+  created       DateTime @default(now())
+  modified      DateTime @updatedAt
+  isDeleted     Boolean  @default(false)
+
+  // RELATIONS - Foreign Keys
+  categoryId    BigInt
+  brandId       BigInt
+  sellerId      BigInt
+  storeId       BigInt?
+  
+  // RELATIONS - References
+  category    Category         @relation(fields: [categoryId], references: [id])
+  brand       Brand            @relation(fields: [brandId], references: [id])
+  seller      User             @relation("ProductSeller", fields: [sellerId], references: [id])
+  store       Store?           @relation("StoreProducts", fields: [storeId], references: [id], onDelete: SetNull)
+  images      ProductImage[]
+  variants    ProductVariant[]
+  reviews     Review[]
+  productTags ProductTag[]
+  orderItems  OrderItem[]      @relation("ProductOrderItems")
+  invoiceDetails InvoiceDetail[]
+
+  @@map("products")
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([brandId])
+  @@index([storeId])
+  @@index([price])
+  @@index([stockQuantity])
+  @@index([created])
+  @@index([slug])
+}
+
+model ProductVariant {
+  id            BigInt   @id @default(autoincrement())
+  sku           String   @unique
+  price         Decimal  @db.Decimal(10, 2)
+  stockQuantity Int      @default(0)
+  imageUrl      String?
+  created       DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  productId     BigInt
+  colorId       BigInt
+  sizeId        BigInt
+  
+  // RELATIONS - References
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  color      Color       @relation(fields: [colorId], references: [id])
+  size       Size        @relation(fields: [sizeId], references: [id])
+  orderItems OrderItem[] @relation("VariantOrderItems")
+  invoiceDetails InvoiceDetail[]
+
+  @@map("product_variants")
+  @@index([productId])
+  @@index([sku])
+  @@index([price])
+}
+
+model Service {
+  id          BigInt      @id @default(autoincrement())
+  name        String
+  slug        String      @unique
+  description String?     @db.Text
+  type        ServiceType @default(FIXED)
+  basePrice   Decimal?    @db.Decimal(10, 2)
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  // RELATIONS - Foreign Keys
+  categoryId  BigInt
+  sellerId    BigInt
+  storeId     BigInt?
+  
+  // RELATIONS - References
+  category       Category          @relation(fields: [categoryId], references: [id])
+  seller         User              @relation(fields: [sellerId], references: [id])
+  store          Store?            @relation("StoreServices", fields: [storeId], references: [id], onDelete: SetNull)
+  images         ServiceImage[]
+  reviews        Review[]
+  serviceTags    ServiceTag[]
+  durations      ServiceDuration[]
+  orderItems     OrderItem[]       @relation("ServiceOrderItems")
+  invoiceDetails InvoiceDetail[]
+
+  @@map("services")
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([storeId])
+  @@index([basePrice])
+  @@index([slug])
+}
+
+model ServiceDuration {
+  id          BigInt       @id @default(autoincrement())
+  duration    Int
+  unit        DurationUnit @default(HOUR)
+  price       Decimal      @db.Decimal(10, 2)
+  description String?      @db.Text
+  isDefault   Boolean      @default(false)
+  created     DateTime     @default(now())
+  modified    DateTime     @updatedAt
+
+  // RELATIONS - Foreign Keys
+  serviceId   BigInt
+  
+  // RELATIONS - References
+  service    Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[] @relation("ServiceDurationOrderItems")
+  invoiceDetails InvoiceDetail[]
+
+  @@unique([serviceId, duration])
+  @@map("service_durations")
+  @@index([serviceId])
+  @@index([price])
+}
+
+model Tag {
+  id          BigInt       @id @default(autoincrement())
+  name        String       @unique
+  created     DateTime     @default(now())
+  modified    DateTime     @updatedAt
+
+  // RELATIONS
+  productTags ProductTag[]
+  serviceTags ServiceTag[]
+
+  @@map("tags")
+  @@index([name])
+}
+
+model ProductTag {
+  id        BigInt @id @default(autoincrement())
+  
+  // RELATIONS - Foreign Keys
+  productId BigInt
+  tagId     BigInt
+  
+  // RELATIONS - References
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, tagId])
+  @@map("product_tags")
+  @@index([productId])
+  @@index([tagId])
+}
+
+model ServiceTag {
+  id        BigInt @id @default(autoincrement())
+  
+  // RELATIONS - Foreign Keys
+  serviceId BigInt
+  tagId     BigInt
+  
+  // RELATIONS - References
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, tagId])
+  @@map("service_tags")
+  @@index([serviceId])
+  @@index([tagId])
+}
+
+model ProductImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  productId BigInt
+  
+  // RELATIONS - References
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+  @@index([productId])
+  @@index([isPrimary])
+}
+
+model ServiceImage {
+  id        BigInt   @id @default(autoincrement())
+  url       String
+  isPrimary Boolean  @default(false)
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  serviceId BigInt
+  
+  // RELATIONS - References
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("service_images")
+  @@index([serviceId])
+  @@index([isPrimary])
+}
+
+model Color {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  hex      String?
+  slug     String   @unique
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  // RELATIONS
+  variants ProductVariant[]
+
+  @@map("colors")
+  @@index([slug])
+}
+
+model Size {
+  id       BigInt   @id @default(autoincrement())
+  name     String
+  slug     String   @unique
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  // RELATIONS
+  variants ProductVariant[]
+
+  @@map("sizes")
+  @@index([slug])
+}
+
+model Order {
+  id          BigInt      @id @default(autoincrement())
+  status      OrderStatus @default(pending)
+  totalAmount Decimal     @db.Decimal(10, 2)
+  subtotal    Decimal     @db.Decimal(10, 2)
+  taxAmount   Decimal     @db.Decimal(10, 2)
+  created     DateTime    @default(now())
+  modified    DateTime    @updatedAt
+  isDeleted   Boolean     @default(false)
+
+  // RELATIONS - Foreign Keys
+  userId      BigInt
+  
+  // RELATIONS - References
+  user         User          @relation(fields: [userId], references: [id])
+  items        OrderItem[]
+  payments     Payment[]
+  transactions Transaction[]
+  invoices     Invoice[]
+
+  @@map("orders")
+  @@index([userId, status])
+  @@index([status])
+  @@index([created])
+  @@index([totalAmount])
+}
+
+model OrderItem {
+  id                BigInt   @id @default(autoincrement())
+  quantity          Int
+  price             Decimal  @db.Decimal(10, 2)
+  created           DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  orderId           BigInt
+  productId         BigInt?
+  variantId         BigInt?
+  serviceId         BigInt?
+  serviceDurationId BigInt?
+  
+  // RELATIONS - References
+  order    Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product  Product?         @relation("ProductOrderItems", fields: [productId], references: [id])
+  variant  ProductVariant?  @relation("VariantOrderItems", fields: [variantId], references: [id])
+  service  Service?         @relation("ServiceOrderItems", fields: [serviceId], references: [id])
+  duration ServiceDuration? @relation("ServiceDurationOrderItems", fields: [serviceDurationId], references: [id])
+  invoiceDetails InvoiceDetail[]
+
+  @@map("order_items")
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([serviceId])
+}
+
+model Invoice {
+  id           BigInt        @id @default(autoincrement())
+  number       String        @unique
+  status       InvoiceStatus @default(DRAFT)
+  
+  // Totaux
+  subtotal     Decimal       @db.Decimal(10, 2)
+  taxAmount    Decimal       @db.Decimal(10, 2)
+  discount     Decimal?      @db.Decimal(10, 2)
+  total        Decimal       @db.Decimal(10, 2)
+  balance      Decimal       @db.Decimal(10, 2)
+  currency     String        @default("HTG")
+  
+  // Informations client (SNAPSHOT)
+  clientName    String
+  clientEmail   String?
+  clientPhone   String?
+  clientAddress String?     @db.Text
+  clientCity    String?
+  clientCountry String?     @default("Haïti")
+  clientVAT     String?
+  
+  // Dates importantes
+  issuedAt      DateTime     @default(now())
+  dueDate       DateTime?
+  paidAt        DateTime?
+  
+  // Métadonnées
+  notes         String?      @db.Text
+  terms         String?      @db.Text
+  created       DateTime     @default(now())
+  modified      DateTime     @updatedAt
+  isDeleted     Boolean      @default(false)
+  
+  // RELATIONS - Foreign Keys
+  orderId      BigInt
+  storeId      BigInt?
+  userId       BigInt?
+  
+  // RELATIONS - References
+  order        Order          @relation(fields: [orderId], references: [id])
+  store        Store?         @relation(fields: [storeId], references: [id])
+  user         User?          @relation(fields: [userId], references: [id])
+  details      InvoiceDetail[]
+  payments     Payment[]
+  transactions Transaction[]
+
+  @@map("invoices")
+  @@index([orderId])
+  @@index([storeId])
+  @@index([number])
+  @@index([status])
+  @@index([issuedAt])
+  @@index([clientEmail])
+  @@index([userId])
+}
+
+model InvoiceDetail {
+  id                BigInt   @id @default(autoincrement())
+  lineNumber        Int
+  description String?     @db.Text
+  itemType          ItemType
+  
+  // Données figées (SNAPSHOT)
+  itemName          String
+  sku               String?
+  quantity          Decimal  @db.Decimal(10, 3)  @default(1)
+  unitPrice         Decimal  @db.Decimal(10, 2)
+  unit              String?  @default("UNIT")
+  
+  // Calculs
+  subtotal          Decimal  @db.Decimal(10, 2)
+  taxRate           Decimal  @db.Decimal(5, 2)   @default(0)
+  taxAmount         Decimal  @db.Decimal(10, 2)
+  total             Decimal  @db.Decimal(10, 2)
+  taxType           TaxType  @default(NONE)
+  lineDiscount      Decimal? @db.Decimal(10, 2)
+  
+  created           DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  invoiceId         BigInt
+  productId         BigInt?
+  variantId         BigInt?
+  serviceId         BigInt?
+  serviceDurationId BigInt?
+  orderItemId       BigInt?
+  
+  // RELATIONS - References
+  invoice      Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product      Product?        @relation(fields: [productId], references: [id])
+  variant      ProductVariant? @relation(fields: [variantId], references: [id])
+  service      Service?        @relation(fields: [serviceId], references: [id])
+  duration     ServiceDuration? @relation(fields: [serviceDurationId], references: [id])
+  orderItem    OrderItem?      @relation(fields: [orderItemId], references: [id])
+
+  @@unique([invoiceId, lineNumber])
+  @@map("invoice_details")
+  @@index([invoiceId])
+  @@index([productId])
+  @@index([serviceId])
+  @@index([sku])
+  @@index([orderItemId])
+}
+
+model InvoiceSequence {
+  id        BigInt   @id @default(autoincrement())
+  prefix    String   @default("INV")
+  year      Int
+  sequence  Int      @default(1)
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  // RELATIONS - Foreign Keys
+  storeId   BigInt?
+  
+  // RELATIONS - References
+  store Store? @relation(fields: [storeId], references: [id])
+
+  @@unique([prefix, year, storeId])
+  @@map("invoice_sequences")
+  @@index([storeId])
+  @@index([year])
+}
+
+model Payment {
+  id           BigInt        @id @default(autoincrement())
+  amount       Decimal       @db.Decimal(10, 2)
+  currency     String        @default("HTG")
+  taux         Decimal       @default(1) @db.Decimal(10, 2)
+  reference    String?
+  method       PaymentMethod
+  status       PaymentStatus @default(PENDING)
+  invoiceNumber String?      // Pour référence rapide
+  isPartial    Boolean       @default(false)
+  notes        String?       @db.Text
+  created      DateTime      @default(now())
+  modified     DateTime      @updatedAt
+  isDeleted    Boolean       @default(false)
+
+  // RELATIONS - Foreign Keys
+  invoiceId    BigInt?
+  orderId      BigInt?
+  userId       BigInt?
+  
+  // RELATIONS - References
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
+  order        Order?        @relation(fields: [orderId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@map("payments")
+  @@index([invoiceId])
+  @@index([orderId])
+  @@index([reference])
+  @@index([status])
+  @@index([method])
+  @@index([userId])
+  @@index([created])
+}
+
+model CashSession {
+  id            BigInt    @id @default(autoincrement())
+  openingTime   DateTime  @default(now())
+  closingTime   DateTime?
+  openingAmount Decimal   @db.Decimal(10, 2)
+  closingAmount Decimal?  @db.Decimal(10, 2)
+  isClosed      Boolean   @default(false)
+  created       DateTime  @default(now())
+  modified      DateTime  @updatedAt
+
+  // RELATIONS - Foreign Keys
+  storeId       BigInt
+  userId        BigInt
+  
+  // RELATIONS - References
+  store        Store         @relation(fields: [storeId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@map("cash_sessions")
+  @@index([storeId])
+  @@index([userId])
+  @@index([isClosed])
+  @@index([openingTime])
+}
+
+model Transaction {
+  id            BigInt            @id @default(autoincrement())
+  type          TransactionType
+  amount        Decimal           @db.Decimal(10, 2)
+  status        TransactionStatus @default(PENDING)
+  description String?     @db.Text
+  reference     String?
+  created       DateTime          @default(now())
+  modified      DateTime          @updatedAt
+  isDeleted     Boolean           @default(false)
+
+  // RELATIONS - Foreign Keys
+  invoiceId     BigInt?
+  orderId       BigInt?
+  cashSessionId BigInt?
+  paymentId     BigInt?
+  userId        BigInt?
+  
+  // RELATIONS - References
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id])
+  order       Order?       @relation(fields: [orderId], references: [id])
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id])
+  payment     Payment?     @relation(fields: [paymentId], references: [id])
+  user        User?        @relation(fields: [userId], references: [id])
+
+  @@map("transactions")
+  @@index([invoiceId])
+  @@index([orderId])
+  @@index([cashSessionId])
+  @@index([paymentId])
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([created])
+}
+
+model Address {
+  id        BigInt      @id @default(autoincrement())
+  street    String
+  city      String
+  state     String
+  country   String
+  zipCode   String
+  type      AddressType
+  created   DateTime    @default(now())
+  modified  DateTime    @updatedAt
+  isDeleted Boolean     @default(false)
+
+  // RELATIONS - Foreign Keys
+  userId    BigInt
+  
+  // RELATIONS - References
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("addresses")
+  @@index([userId])
+  @@index([type])
+}
+
+model Review {
+  id        BigInt   @id @default(autoincrement())
+  rating    Int
+  comment   String?  @db.Text
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+  isDeleted Boolean  @default(false)
+
+  // RELATIONS - Foreign Keys
+  productId BigInt?
+  serviceId BigInt?
+  storeId   BigInt?
+  userId    BigInt
+  
+  // RELATIONS - References
+  user    User     @relation(fields: [userId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  service Service? @relation(fields: [serviceId], references: [id])
+  store   Store?   @relation(fields: [storeId], references: [id])
+
+  @@map("reviews")
+  @@index([productId])
+  @@index([serviceId])
+  @@index([storeId])
+  @@index([userId])
+  @@index([rating])
+  @@index([created])
+}
